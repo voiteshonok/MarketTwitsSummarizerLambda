@@ -1,6 +1,6 @@
 import os
 import logging
-from typing import List
+from typing import List, Optional
 import psycopg2
 
 logger = logging.getLogger(__name__)
@@ -134,3 +134,157 @@ def get_chat_ids() -> List[int]:
         if conn:
             conn.close()
             logger.debug("Database connection closed")
+
+
+def add_chat_id(chat_id: int) -> bool:
+    """
+    Add a chat ID to the database (subscribe).
+    
+    Args:
+        chat_id: Telegram chat ID to add
+        
+    Returns:
+        True if successfully added, False if already exists or error occurs
+    """
+    conn = None
+    cursor = None
+    try:
+        db_host = os.getenv("DB_HOST")
+        db_name = os.getenv("DB_NAME")
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        
+        if not all([db_host, db_name, db_user, db_password]):
+            logger.error("Missing database environment variables")
+            return False
+        
+        conn = psycopg2.connect(
+            host=db_host,
+            database=db_name,
+            user=db_user,
+            password=db_password
+        )
+        
+        cursor = conn.cursor()
+        # Try to insert, handle duplicate key error
+        try:
+            cursor.execute("INSERT INTO chat_ids (chat_id) VALUES (%s)", (chat_id,))
+            conn.commit()
+            logger.info(f"Successfully added chat_id {chat_id} to database")
+            return True
+        except psycopg2.IntegrityError:
+            # Chat ID already exists
+            conn.rollback()
+            logger.info(f"Chat ID {chat_id} already exists in database")
+            return False
+        
+    except Exception as e:
+        logger.error(f"Error adding chat_id {chat_id}: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+def remove_chat_id(chat_id: int) -> bool:
+    """
+    Remove a chat ID from the database (unsubscribe).
+    
+    Args:
+        chat_id: Telegram chat ID to remove
+        
+    Returns:
+        True if successfully removed, False if not found or error occurs
+    """
+    conn = None
+    cursor = None
+    try:
+        db_host = os.getenv("DB_HOST")
+        db_name = os.getenv("DB_NAME")
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        
+        if not all([db_host, db_name, db_user, db_password]):
+            logger.error("Missing database environment variables")
+            return False
+        
+        conn = psycopg2.connect(
+            host=db_host,
+            database=db_name,
+            user=db_user,
+            password=db_password
+        )
+        
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM chat_ids WHERE chat_id = %s", (chat_id,))
+        conn.commit()
+        
+        if cursor.rowcount > 0:
+            logger.info(f"Successfully removed chat_id {chat_id} from database")
+            return True
+        else:
+            logger.info(f"Chat ID {chat_id} not found in database")
+            return False
+        
+    except Exception as e:
+        logger.error(f"Error removing chat_id {chat_id}: {e}")
+        if conn:
+            conn.rollback()
+        return False
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()
+
+
+def get_latest_summary() -> Optional[str]:
+    """
+    Get the latest summary from the database.
+    
+    Returns:
+        Latest summary message as string, or None if no summary found
+    """
+    conn = None
+    cursor = None
+    try:
+        db_host = os.getenv("DB_HOST")
+        db_name = os.getenv("DB_NAME")
+        db_user = os.getenv("DB_USER")
+        db_password = os.getenv("DB_PASSWORD")
+        
+        if not all([db_host, db_name, db_user, db_password]):
+            logger.error("Missing database environment variables")
+            return None
+        
+        conn = psycopg2.connect(
+            host=db_host,
+            database=db_name,
+            user=db_user,
+            password=db_password
+        )
+        
+        cursor = conn.cursor()
+        # Get the latest summary ordered by timestamp descending
+        cursor.execute("SELECT message FROM twits_summary ORDER BY timestamp DESC LIMIT 1")
+        
+        row = cursor.fetchone()
+        if row:
+            logger.info("Successfully retrieved latest summary from database")
+            return row[0]
+        else:
+            logger.info("No summaries found in database")
+            return None
+        
+    except Exception as e:
+        logger.error(f"Error getting latest summary: {e}")
+        return None
+    finally:
+        if cursor:
+            cursor.close()
+        if conn:
+            conn.close()

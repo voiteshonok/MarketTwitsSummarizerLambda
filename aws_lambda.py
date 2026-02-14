@@ -33,7 +33,7 @@ from typing import List, Optional, Any, Dict, Tuple
 from dataclasses import dataclass, field
 from dotenv import load_dotenv
 
-from database import add_message_to_database, get_chat_ids
+from database import add_message_to_database, get_chat_ids, add_chat_id, remove_chat_id, get_latest_summary
 
 logging.basicConfig(
     level=logging.INFO,
@@ -633,26 +633,309 @@ async def run_daily_job_async() -> bool:
 
 
 # ============================================================================
+# Webhook Command Processing
+# ============================================================================
+
+def _is_api_gateway_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from API Gateway.
+    
+    Args:
+        event: Lambda event object
+        
+    Returns:
+        True if event is from API Gateway, False otherwise
+    """
+    return (
+        "httpMethod" in event or 
+        "requestContext" in event or 
+        ("path" in event and "body" in event)
+    )
+
+
+def _is_eventbridge_event(event: Dict[str, Any]) -> bool:
+    """
+    Check if the event is from EventBridge.
+    
+    Args:
+        event: Lambda event object
+        
+    Returns:
+        True if event is from EventBridge, False otherwise
+    """
+    return "source" in event and event.get("source") == "aws.events"
+
+
+def parse_command(message_text: str) -> Tuple[Optional[str], List[str]]:
+    """
+    Parse command from message text.
+    
+    Args:
+        message_text: Message text from Telegram
+        
+    Returns:
+        Tuple of (command, args) or (None, []) if not a command
+    """
+    if not message_text or not message_text.startswith("/"):
+        return None, []
+    
+    # Split command and arguments
+    parts = message_text.split()
+    command = parts[0][1:].lower()  # Remove '/' and convert to lowercase
+    args = parts[1:] if len(parts) > 1 else []
+    
+    return command, args
+
+
+async def handle_start_command(chat_id: int) -> bool:
+    """Handle /start command - welcome message."""
+    welcome_message = (
+        "👋 <b>Welcome to MarketTwits Summarizer Bot!</b>\n\n"
+        "I provide daily market summaries and financial news updates as a silent message at 3:00 AM UTC.\n\n"
+        "Use /help to see all available commands."
+    )
+    return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, welcome_message)
+
+
+async def handle_subscribe_command(chat_id: int) -> bool:
+    """Handle /subscribe command - add user to subscription list."""
+    try:
+        success = add_chat_id(chat_id)
+        if success:
+            message = "✅ <b>Successfully subscribed!</b>\n\nYou will now receive daily market summaries."
+        else:
+            message = "ℹ️ You are already subscribed to daily market summaries."
+        return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, message)
+    except Exception as e:
+        logging.error(f"Error in subscribe command: {e}")
+        error_message = "❌ Error subscribing. Please try again later."
+        return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, error_message)
+
+
+async def handle_unsubscribe_command(chat_id: int) -> bool:
+    """Handle /unsubscribe command - remove user from subscription list."""
+    try:
+        success = remove_chat_id(chat_id)
+        if success:
+            message = "✅ <b>Successfully unsubscribed!</b>\n\nYou will no longer receive daily market summaries."
+        else:
+            message = "ℹ️ You are not currently subscribed."
+        return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, message)
+    except Exception as e:
+        logging.error(f"Error in unsubscribe command: {e}")
+        error_message = "❌ Error unsubscribing. Please try again later."
+        return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, error_message)
+
+
+async def handle_get_latest_command(chat_id: int) -> bool:
+    """Handle /get_latest command - get the latest market summary."""
+    try:
+        summary = get_latest_summary()
+        if summary:
+            return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, summary)
+        else:
+            message = (
+                "📭 <b>No summary available</b>\n\n"
+                "No market summaries have been generated yet. "
+                "Check back later or subscribe to receive daily summaries automatically."
+            )
+            return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, message)
+    except Exception as e:
+        logging.error(f"Error in get_latest command: {e}")
+        error_message = "❌ Error retrieving latest summary. Please try again later."
+        return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, error_message)
+
+
+async def handle_help_command(chat_id: int) -> bool:
+    """Handle /help command - show available commands."""
+    help_message = (
+        "📚 <b>Available Commands:</b>\n\n"
+        "/start - Стартовать бота\n"
+        "/subscribe - Подписаться на получение саммари\n"
+        "/unsubscribe - Отписаться от получения саммари\n"
+        "/get_latest - Получить последнее саммари\n"
+        "/help - Команды бота"
+    )
+    return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, help_message)
+
+
+async def handle_unknown_command(chat_id: int, command: str) -> bool:
+    """Handle unknown commands."""
+    error_message = (
+        f"❓ Unknown command: <code>{command}</code>\n\n"
+        "Use /help to see all available commands."
+    )
+    return await send_message(config.TELEGRAM_BOT_TOKEN, chat_id, error_message)
+
+
+async def process_command(chat_id: int, message_text: str) -> bool:
+    """
+    Process bot commands and route to appropriate handler.
+    
+    Args:
+        chat_id: Telegram chat ID
+        message_text: Message text from user
+        
+    Returns:
+        True if command processed successfully, False otherwise
+    """
+    command, args = parse_command(message_text)
+    
+    if not command:
+        # Not a command, ignore non-command messages
+        logging.info(f"Received non-command message from chat_id {chat_id}, ignoring")
+        return True
+    
+    # Route commands to handlers
+    command_handlers = {
+        "start": handle_start_command,
+        "subscribe": handle_subscribe_command,
+        "unsubscribe": handle_unsubscribe_command,
+        "get_latest": handle_get_latest_command,
+        "help": handle_help_command,
+    }
+    
+    handler = command_handlers.get(command)
+    
+    if handler:
+        try:
+            return await handler(chat_id)
+        except Exception as e:
+            logging.error(f"Error processing command {command}: {e}")
+            return await send_message(
+                config.TELEGRAM_BOT_TOKEN,
+                chat_id,
+                "❌ Error processing command. Please try again."
+            )
+    else:
+        return await handle_unknown_command(chat_id, command)
+
+
+def handle_webhook_update(event: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Handle webhook update from API Gateway.
+    
+    Args:
+        event: API Gateway event object
+        
+    Returns:
+        API Gateway response dictionary
+    """
+    try:
+        # Parse the event body (API Gateway sends body as JSON string at top level)
+        # Try standard location first, then fallback to requestContext.body for custom setups
+        body = event.get("body") or event.get("requestContext", {}).get("body", "{}")
+        if isinstance(body, str):
+            update = json.loads(body)
+        else:
+            update = body
+        
+        # Validate update structure
+        if "message" not in update:
+            logging.warning("Webhook update does not contain message field")
+            return {
+                "statusCode": 200,  # Return 200 to acknowledge webhook
+                "body": json.dumps({"ok": True, "message": "No message in update"})
+            }
+        
+        message = update["message"]
+        
+        # Extract chat_id and message text
+        if "chat" not in message or "id" not in message["chat"]:
+            logging.warning("Message does not contain chat.id")
+            return {
+                "statusCode": 200,
+                "body": json.dumps({"ok": True, "message": "No chat ID in message"})
+            }
+        
+        chat_id = message["chat"]["id"]
+        message_text = message.get("text", "")
+        
+        if not message_text:
+            logging.warning(f"No text in message from chat_id {chat_id}")
+            return {
+                "statusCode": 200,
+                "body": json.dumps({"ok": True, "message": "No text in message"})
+            }
+        
+        # Process command
+        logging.info(f"Processing webhook update: chat_id={chat_id}, text={message_text}")
+        success = asyncio.run(process_command(chat_id, message_text))
+        
+        return {
+            "statusCode": 200,
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({
+                "ok": success,
+                "message": "Command processed" if success else "Failed to process command"
+            })
+        }
+        
+    except json.JSONDecodeError as e:
+        logging.error(f"Failed to parse webhook body: {e}")
+        return {
+            "statusCode": 400,
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"ok": False, "error": "Invalid JSON in request body"})
+        }
+    except Exception as e:
+        logging.error(f"Error handling webhook update: {e}")
+        import traceback
+        logging.error(traceback.format_exc())
+        return {
+            "statusCode": 500,
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({"ok": False, "error": str(e)})
+        }
+
+
+# ============================================================================
 # Standalone Entry Point
 # ============================================================================
 
 def lambda_handler(event, context):
-    print("=== LAMBDA HANDLER STARTED ===", flush=True)
     try:
-        success = asyncio.run(run_daily_job_async())
-        return {
-            "statusCode": 200,
-            "body": {
-                "success": success
+        # Detect event source and route accordingly
+        if _is_api_gateway_event(event):
+            logging.info("Detected API Gateway event - processing webhook")
+            return handle_webhook_update(event)
+        elif _is_eventbridge_event(event):
+            logging.info("Detected EventBridge event - running daily job")
+            success = asyncio.run(run_daily_job_async())
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "success": success
+                })
             }
-        }
+        else:
+            # Default to daily job for backward compatibility
+            logging.info("Unknown event type - defaulting to daily job")
+            success = asyncio.run(run_daily_job_async())
+            return {
+                "statusCode": 200,
+                "body": json.dumps({
+                    "success": success
+                })
+            }
     except Exception as e:
         import traceback
+        logging.error(f"Error in lambda_handler: {e}")
+        logging.error(traceback.format_exc())
         return {
             "statusCode": 500,
-            "body": {
+            "headers": {
+                "Content-Type": "application/json"
+            },
+            "body": json.dumps({
                 "error": str(e),
                 "trace": traceback.format_exc()
-            }
+            })
         }
 
