@@ -19,14 +19,14 @@ test_event = {
                 "language_code": "en"
             },
             "chat": {
-                "id": <CHAT_ID>,
+                "id": 427988146,
                 "first_name": "N",
                 "last_name": "A",
                 "username": "nainarora",
                 "type": "private"
             },
             "date": 1633935457,
-            "text": "/subscribe",
+            "text": "/get_latest",
             "entities": [
                 {
                     "offset": 0,

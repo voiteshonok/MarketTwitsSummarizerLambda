@@ -11,7 +11,8 @@ COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy function code
-COPY aws_lambda.py database.py .
+COPY aws_lambda.py .
+COPY src/ src/
 
 # Lambda handler
 CMD ["aws_lambda.lambda_handler"]
