@@ -44,7 +44,8 @@ test_event = {
 }
 
 # Test the lambda handler
-result = lambda_handler(test_event, {})
+# result = lambda_handler(test_event, {})
+result = lambda_handler({}, {})
 print(json.dumps(result, indent=2))
 
 

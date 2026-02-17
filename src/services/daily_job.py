@@ -240,6 +240,7 @@ async def run_daily_job_async() -> bool:
             # Step 7: Send message and save to database
             now_utc = datetime.now(timezone.utc)
             chat_ids = get_chat_ids()
+            # chat_ids = [427988146]
             success = await _send_and_save_summary(chat_ids, message, now_utc, config.TELEGRAM_BOT_TOKEN)
             
             if success:

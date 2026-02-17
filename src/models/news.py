@@ -32,9 +32,9 @@ class NewsBatch:
 class Summary:
     """Model for the daily summary."""
     date: Any  # Can be datetime or date
-    summary_text: str
     news_count: int
     key_topics: List[str] = field(default_factory=list)
+    summary_text: str = "Краткий обзор самых важных рыночных событий"
     
     def _format_date(self, date_obj: Any) -> str:
         """

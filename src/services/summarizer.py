@@ -45,9 +45,8 @@ class NewsSummarizer:
 
 Используй формат как пронумерованный список кратких новостей, отсортированных от самых важных к менее важным.
 
-Формат ответа в JSON:
+Формат ответа СТРОГО в Json:
 {{
-    "summary": "Краткий обзор самых важных рыночных событий",
     "key_topics": ["важная новость 1", "важная новость 2", ...]
 }}
 
@@ -66,7 +65,7 @@ class NewsSummarizer:
 - Мелкие местные новости
 - Спекуляции без содержания
 
-Пиши на русском языке в формате пронумерованного списка.
+Пиши на русском языке в формате списка ( до 10 новостей)
 """
     
     async def summarize_news(self, news_items: List[NewsItem], target_date: date) -> Optional[Summary]:
@@ -108,7 +107,7 @@ class NewsSummarizer:
                     {"role": "system", "content": "You are a professional financial news analyst."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=500,
+                max_tokens=1000,
                 temperature=0
             )
             
@@ -117,15 +116,13 @@ class NewsSummarizer:
             # Parse JSON response
             try:
                 summary_data = json.loads(content)
-                summary_text = summary_data.get("summary", content)
+                # logger.info(f"Summary data: {summary_data}")
                 key_topics = summary_data.get("key_topics", [])
             except json.JSONDecodeError:
-                summary_text = content
                 key_topics = []
             
             summary = Summary(
                 date=target_date,
-                summary_text=summary_text,
                 news_count=len(news_items),
                 key_topics=key_topics
             )
