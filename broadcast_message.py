@@ -53,21 +53,23 @@ def main() -> int:
     Итак на каждый день будет скор по каждой метрике. Можно смотреть на изменение среднего, но можно еще и стат тест посчить, наприер, тест Вилкоксона
     Сжег немного баксов на оценку и получил:
     • 𝐑𝐞𝐥𝐞𝐯𝐚𝐧𝐜𝐞: 𝟖.𝟏𝟔 ➔ 𝟖.𝟒 (статистически незначимо)
-    • 𝐅𝐚𝐢𝐭𝐡𝐟𝐮𝐥𝐧𝐞𝐬𝐬: .𝟏𝟐𝟓 (статистически значимо)
+    • 𝐅𝐚𝐢𝐭𝐡𝐟𝐮𝐥𝐧𝐞𝐬𝐬: 7.07 → 9.125 (статистически значимо)
 
     Вот так вот.
+
+    Пардон за первый кривой пост.
     """
 
     if not config.TELEGRAM_BOT_TOKEN:
         logging.error("TELEGRAM_BOT_TOKEN is not set.")
         return 1
 
-    # try:
-    #     chat_ids = get_chat_ids()
-    # except Exception as e:
-    #     logging.error("Failed to load chat IDs: %s", e)
-    #     return 1
-    chat_ids = [427988146]
+    try:
+        chat_ids = get_chat_ids()
+    except Exception as e:
+        logging.error("Failed to load chat IDs: %s", e)
+        return 1
+    # chat_ids = [427988146]
 
     if not chat_ids:
         logging.warning("No chat_ids in database.")
